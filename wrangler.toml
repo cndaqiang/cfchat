@@ -1,4 +1,4 @@
-name = "cf-chat"
+name = "cfchat"
 main = "src/worker.js"
 compatibility_date = "2024-01-01"
 
