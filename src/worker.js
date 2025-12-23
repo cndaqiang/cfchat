@@ -146,7 +146,7 @@ function createHomeResponse() {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☁️</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>%E2%98%81%EF%B8%8F</text></svg>">
   <title>密钥消息</title>
   <style>
     :root {
@@ -232,46 +232,6 @@ function createHomeResponse() {
       margin-bottom: 12px;
     }
 
-    .chat-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 12px;
-      flex-wrap: wrap;
-    }
-
-    .chat-head .section-title {
-      margin-bottom: 0;
-    }
-
-    .local-secret {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 10px;
-      border-radius: 999px;
-      background: #f3f4f6;
-      border: 1px solid var(--line);
-      font-size: 12px;
-      color: var(--muted);
-    }
-
-    .secret-value {
-      font-weight: 700;
-      color: var(--ink);
-    }
-
-    .copy-btn {
-      border: none;
-      padding: 4px 10px;
-      border-radius: 999px;
-      background: #fff1e5;
-      color: #9b2c10;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-    }
     .field {
       display: flex;
       flex-direction: column;
@@ -444,6 +404,32 @@ function createHomeResponse() {
       align-items: center;
     }
 
+    .file-card {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: #f8fafc;
+      border: 1px solid var(--line);
+    }
+
+    .file-name {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .file-meta {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .file-download {
+      color: var(--accent-2);
+      font-weight: 600;
+      font-size: 12px;
+      text-decoration: none;
+    }
     .composer {
       display: flex;
       flex-direction: column;
@@ -516,8 +502,6 @@ function createHomeResponse() {
       header { flex-direction: column; align-items: flex-start; gap: 6px; }
       .panel { grid-template-columns: 1fr; }
       .messages { max-height: 320px; }
-      .chat-head { align-items: flex-start; }
-      .local-secret { width: 100%; justify-content: space-between; }
     }
   </style>
 </head>
@@ -552,26 +536,20 @@ function createHomeResponse() {
       </aside>
 
       <section class="card chat">
-        <div class="chat-head">
-          <div class="section-title">实时消息</div>
-          <div class="local-secret">
-            <span>本地密钥</span>
-            <span id="secretDisplay" class="secret-value">noset</span>
-            <button id="copySecret" class="copy-btn" type="button">复制</button>
-          </div>
-        </div>
+        <div class="section-title">实时消息</div>
         <div id="messages" class="messages"></div>
         <div class="composer">
           <div class="field">
             <label for="messageInput">发送消息</label>
             <textarea id="messageInput" rows="3" placeholder="输入内容，Enter 发送，Shift+Enter 换行"></textarea>
           </div>
-          <input id="imageInput" type="file" accept="image/*" hidden>
+          <input id="fileInput" type="file" hidden>
           <div class="actions">
             <button id="sendBtn" class="btn primary">发送</button>
-            <button id="imageBtn" class="btn secondary" type="button">图片</button>
+            <button id="fileBtn" class="btn secondary" type="button">文件</button>
             <button id="clearBtn" class="btn secondary" type="button">清空本地</button>
           </div>
+          <div id="limitTip" class="tips"></div>
           <div id="notice" class="notice"></div>
         </div>
       </section>
@@ -588,22 +566,23 @@ function createHomeResponse() {
     const STORAGE_MESSAGES_PREFIX = 'cfchat.messages.';
     const DEFAULT_PASSWORD = 'noset';
     const MAX_HISTORY = 200;
-    const MAX_IMAGE_BYTES = 512 * 1024;
+    const MAX_FILE_BYTES = 5 * 1024 * 1024;
+    const MAX_CHUNK_BYTES = 240 * 1024;
+    const CHUNK_TTL = 2 * 60 * 1000;
 
     const secretInput = document.getElementById('secretInput');
     const messageInput = document.getElementById('messageInput');
     const toggleSecret = document.getElementById('toggleSecret');
     const sendBtn = document.getElementById('sendBtn');
-    const imageBtn = document.getElementById('imageBtn');
-    const imageInput = document.getElementById('imageInput');
+    const fileBtn = document.getElementById('fileBtn');
+    const fileInput = document.getElementById('fileInput');
     const clearBtn = document.getElementById('clearBtn');
     const messagesEl = document.getElementById('messages');
     const statusEl = document.getElementById('status');
     const statusText = document.getElementById('statusText');
     const fingerprintEl = document.getElementById('fingerprint');
     const noticeEl = document.getElementById('notice');
-    const secretDisplay = document.getElementById('secretDisplay');
-    const copySecret = document.getElementById('copySecret');
+    const limitTip = document.getElementById('limitTip');
 
     let clientId = sessionStorage.getItem(STORAGE_CLIENT_ID);
     if (!clientId) {
@@ -619,6 +598,7 @@ function createHomeResponse() {
     let messageStore = [];
     let passwordTimer = null;
     let passwordVersion = 0;
+    const incomingChunks = new Map();
 
     function setStatus(state, text) {
       statusEl.className = 'status ' + state;
@@ -637,10 +617,6 @@ function createHomeResponse() {
     function normalizePassword(value) {
       const trimmed = (value || '').trim();
       return trimmed ? trimmed : DEFAULT_PASSWORD;
-    }
-
-    function updateSecretDisplay(password) {
-      secretDisplay.textContent = password;
     }
 
     function copyToClipboard(text) {
@@ -707,14 +683,12 @@ function createHomeResponse() {
     async function applyPassword(rawPassword) {
       const password = normalizePassword(rawPassword);
       if (password === currentPassword && cryptoKey && currentRoomId) {
-        updateSecretDisplay(password);
         return;
       }
 
       const version = ++passwordVersion;
       currentPassword = password;
       localStorage.setItem(STORAGE_PASSWORD, password);
-      updateSecretDisplay(password);
 
       const derivedKey = await deriveKey(password);
       if (version !== passwordVersion) return;
@@ -793,22 +767,32 @@ function createHomeResponse() {
       if (!payload.data || !payload.iv) return;
 
       const payloadType = typeof payload.type === 'string' ? payload.type.toLowerCase() : '';
-      const isImagePayload = payloadType === 'image' || (payload.mime && payload.mime.startsWith('image/'));
 
-      if (isImagePayload) {
-        const bytes = await decryptBytes(payload).catch(() => null);
-        if (!bytes) {
-          addImageMessage(null, payload.time, false, payload, true);
-          scrollToBottom();
-          return;
-        }
-        const mime = payload.mime && payload.mime.startsWith('image/') ? payload.mime : 'image/png';
-        const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
-        addImageMessage(url, payload.time, false, payload, false);
-        scrollToBottom();
+      if (payloadType === 'image_chunk' || payloadType === 'file_chunk') {
+        await handleFileChunk(payload);
         return;
       }
 
+      if (payloadType === 'file' || payloadType === 'image') {
+        const bytes = await decryptBytes(payload).catch(() => null);
+        if (!bytes) {
+          addFileMessage(null, payload.time, false, payload, true);
+          scrollToBottom();
+          return;
+        }
+
+        const mime = payload.mime || (payloadType === 'image' ? 'image/png' : 'application/octet-stream');
+        const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+        const meta = {
+          name: payload.name || '文件',
+          size: payload.size || bytes.length,
+          mime: mime
+        };
+
+        addFileMessage(url, payload.time, false, meta, false);
+        scrollToBottom();
+        return;
+      }
       if (payloadType && payloadType !== 'text') {
         addTextMessage('未知消息类型', payload.time, false, true);
         scrollToBottom();
@@ -856,15 +840,11 @@ function createHomeResponse() {
       scrollToBottom();
     }
 
-    async function sendImage(file) {
+    async function sendFile(file) {
       if (!file) return;
-      if (!file.type || !file.type.startsWith('image/')) {
-        showNotice('仅支持图片');
-        return;
-      }
 
-      if (file.size > MAX_IMAGE_BYTES) {
-        showNotice('图片过大，最大 ' + formatBytes(MAX_IMAGE_BYTES));
+      if (file.size > MAX_FILE_BYTES) {
+        showNotice('文件过大，最大 ' + formatBytes(MAX_FILE_BYTES));
         return;
       }
 
@@ -880,33 +860,151 @@ function createHomeResponse() {
 
       const buffer = await file.arrayBuffer();
       const bytes = new Uint8Array(buffer);
-      const encrypted = await encryptBytes(bytes);
-      const payload = {
-        v: 1,
-        type: 'image',
-        sender: clientId,
-        time: Date.now(),
-        iv: encrypted.iv,
-        data: encrypted.data,
-        name: file.name || 'image',
-        mime: file.type || 'image/png',
+      const time = Date.now();
+      const payloadMeta = {
+        name: file.name || '文件',
+        mime: file.type || 'application/octet-stream',
         size: bytes.length
       };
 
-      ws.send(JSON.stringify(payload));
+      if (bytes.length <= MAX_CHUNK_BYTES) {
+        const encrypted = await encryptBytes(bytes);
+        const payload = {
+          v: 1,
+          type: 'file',
+          sender: clientId,
+          time: time,
+          iv: encrypted.iv,
+          data: encrypted.data,
+          name: payloadMeta.name,
+          mime: payloadMeta.mime,
+          size: payloadMeta.size
+        };
+
+        ws.send(JSON.stringify(payload));
+      } else {
+        await sendFileInChunks(bytes, payloadMeta, time);
+      }
 
       const url = URL.createObjectURL(file);
-      addImageMessage(url, payload.time, true, payload, false);
+      addFileMessage(url, time, true, payloadMeta, false);
       scrollToBottom();
     }
 
-    async function handleImageFiles(files) {
-      const list = Array.from(files || []);
-      for (const file of list) {
-        await sendImage(file);
+    async function sendFileInChunks(bytes, meta, time) {
+      const id = crypto.randomUUID();
+      const total = Math.ceil(bytes.length / MAX_CHUNK_BYTES);
+
+      for (let index = 0; index < total; index += 1) {
+        const start = index * MAX_CHUNK_BYTES;
+        const end = Math.min(start + MAX_CHUNK_BYTES, bytes.length);
+        const slice = bytes.slice(start, end);
+        const encrypted = await encryptBytes(slice);
+        const payload = {
+          v: 1,
+          type: 'file_chunk',
+          sender: clientId,
+          time: time,
+          id: id,
+          index: index,
+          total: total,
+          iv: encrypted.iv,
+          data: encrypted.data,
+          name: meta.name,
+          mime: meta.mime,
+          size: meta.size
+        };
+
+        ws.send(JSON.stringify(payload));
       }
     }
 
+    async function handleFileFiles(files) {
+      const list = Array.from(files || []);
+      for (const file of list) {
+        await sendFile(file);
+      }
+    }
+    function createChunkState(payload) {
+      if (!payload || typeof payload.id !== 'string') return null;
+      const total = payload.total;
+      if (!Number.isInteger(total) || total <= 0) return null;
+
+      const state = {
+        total: total,
+        received: 0,
+        chunks: new Array(total),
+        meta: {
+          name: payload.name || '文件',
+          mime: payload.mime || 'application/octet-stream',
+          size: payload.size || 0,
+          time: payload.time || Date.now()
+        },
+        timer: null
+      };
+
+      state.timer = setTimeout(() => {
+        incomingChunks.delete(payload.id);
+      }, CHUNK_TTL);
+
+      incomingChunks.set(payload.id, state);
+      return state;
+    }
+
+    async function handleFileChunk(payload) {
+      if (!payload || typeof payload.id !== 'string') return;
+      const total = payload.total;
+      const index = payload.index;
+
+      if (!Number.isInteger(total) || total <= 0) return;
+      if (!Number.isInteger(index) || index < 0 || index >= total) return;
+
+      let state = incomingChunks.get(payload.id);
+      if (!state) {
+        state = createChunkState(payload);
+      }
+      if (!state || state.total !== total) return;
+      if (state.chunks[index]) return;
+
+      const bytes = await decryptBytes(payload).catch(() => null);
+      if (!bytes) {
+        incomingChunks.delete(payload.id);
+        addFileMessage(null, payload.time, false, payload, true);
+        scrollToBottom();
+        return;
+      }
+
+      state.chunks[index] = bytes;
+      state.received += 1;
+
+      if (state.received !== state.total) return;
+
+      clearTimeout(state.timer);
+      incomingChunks.delete(payload.id);
+
+      if (state.chunks.some((chunk) => !chunk)) {
+        return;
+      }
+
+      const totalBytes = state.chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+      const merged = new Uint8Array(totalBytes);
+      let offset = 0;
+      for (const chunk of state.chunks) {
+        merged.set(chunk, offset);
+        offset += chunk.length;
+      }
+
+      const mime = state.meta.mime || 'application/octet-stream';
+      const url = URL.createObjectURL(new Blob([merged], { type: mime }));
+      const payloadMeta = {
+        name: state.meta.name,
+        size: state.meta.size,
+        mime: mime
+      };
+
+      addFileMessage(url, state.meta.time, false, payloadMeta, false);
+      scrollToBottom();
+    }
     function addTextMessage(text, time, mine, failed) {
       const item = document.createElement('div');
       item.className = 'message' + (mine ? ' mine' : '');
@@ -957,7 +1055,8 @@ function createHomeResponse() {
       messagesEl.appendChild(item);
     }
 
-    function addImageMessage(url, time, mine, payload, failed) {
+
+    function addFileMessage(url, time, mine, payload, failed) {
       const item = document.createElement('div');
       item.className = 'message' + (mine ? ' mine' : '');
 
@@ -968,53 +1067,40 @@ function createHomeResponse() {
 
       item.appendChild(meta);
 
+      const card = document.createElement('div');
+      card.className = 'file-card';
+
       if (failed || !url) {
-        const content = document.createElement('div');
-        content.className = 'text';
-        content.textContent = '图片无法解密（密钥不一致）';
-        item.appendChild(content);
+        const failedText = document.createElement('div');
+        failedText.className = 'text';
+        failedText.textContent = '文件无法解密（密钥不一致）';
+        card.appendChild(failedText);
+        item.appendChild(card);
         messagesEl.appendChild(item);
         return;
       }
 
-      const media = document.createElement('div');
-      media.className = 'media';
+      const name = payload && payload.name ? payload.name : '文件';
+      const nameEl = document.createElement('div');
+      nameEl.className = 'file-name';
+      nameEl.textContent = name;
 
-      const img = document.createElement('img');
-      img.alt = payload && payload.name ? payload.name : '图片';
-      img.src = url;
-
-      const preview = document.createElement('a');
-      preview.href = url;
-      preview.target = '_blank';
-      preview.rel = 'noopener';
-      preview.appendChild(img);
-
-      const metaLine = document.createElement('div');
-      metaLine.className = 'meta-line';
-
-      const nameSpan = document.createElement('span');
-      nameSpan.textContent = payload && payload.name ? payload.name : '图片';
-      metaLine.appendChild(nameSpan);
-
-      if (payload && payload.size) {
-        const sizeSpan = document.createElement('span');
-        sizeSpan.textContent = formatBytes(payload.size);
-        metaLine.appendChild(sizeSpan);
-      }
+      const metaEl = document.createElement('div');
+      metaEl.className = 'file-meta';
+      metaEl.textContent = payload && typeof payload.size === 'number' ? formatBytes(payload.size) : '未知大小';
 
       const download = document.createElement('a');
+      download.className = 'file-download';
       download.href = url;
-      download.download = payload && payload.name ? payload.name : 'image';
+      download.download = name;
       download.textContent = '下载';
 
-      media.appendChild(preview);
-      media.appendChild(metaLine);
-      media.appendChild(download);
-      item.appendChild(media);
+      card.appendChild(nameEl);
+      card.appendChild(metaEl);
+      card.appendChild(download);
+      item.appendChild(card);
       messagesEl.appendChild(item);
     }
-
     function formatBytes(bytes) {
       if (!bytes) return '0 B';
       const units = ['B', 'KB', 'MB'];
@@ -1025,6 +1111,11 @@ function createHomeResponse() {
         unitIndex += 1;
       }
       return size.toFixed(size >= 10 || unitIndex === 0 ? 0 : 1) + ' ' + units[unitIndex];
+    }
+
+    function updateLimitTip() {
+      if (!limitTip) return;
+      limitTip.textContent = '文件最大 ' + formatBytes(MAX_FILE_BYTES);
     }
 
     async function encryptBytes(bytes) {
@@ -1096,35 +1187,29 @@ function createHomeResponse() {
         sendMessage();
       }
     });
-
+
     messageInput.addEventListener('paste', (event) => {
       const items = event.clipboardData && event.clipboardData.items;
       if (!items) return;
       const files = [];
       for (const item of items) {
-        if (item.kind === 'file' && item.type.startsWith('image/')) {
+        if (item.kind === 'file') {
           const file = item.getAsFile();
           if (file) files.push(file);
         }
       }
       if (files.length) {
         event.preventDefault();
-        handleImageFiles(files);
+        handleFileFiles(files);
       }
     });
 
-    imageBtn.addEventListener('click', () => {
-      imageInput.value = '';
-      imageInput.click();
-    });
-
-    imageInput.addEventListener('change', async (event) => {
+    fileInput.addEventListener('change', async (event) => {
       const files = event.target.files;
       if (!files || files.length === 0) return;
-      await handleImageFiles(files);
-      imageInput.value = '';
+      await handleFileFiles(files);
+      fileInput.value = '';
     });
-
     clearBtn.addEventListener('click', () => {
       if (!currentRoomId) return;
       localStorage.removeItem(storageKey(currentRoomId));
@@ -1151,14 +1236,9 @@ function createHomeResponse() {
       secretInput.type = isHidden ? 'text' : 'password';
       toggleSecret.textContent = isHidden ? '隐藏' : '显示';
     });
-
-    copySecret.addEventListener('click', async () => {
-      try {
-        await copyToClipboard(currentPassword || DEFAULT_PASSWORD);
-        showNotice('密钥已复制');
-      } catch (error) {
-        showNotice('复制失败');
-      }
+    fileBtn.addEventListener('click', () => {
+      fileInput.value = '';
+      fileInput.click();
     });
 
     const stored = localStorage.getItem(STORAGE_PASSWORD);
@@ -1167,6 +1247,7 @@ function createHomeResponse() {
       secretInput.value = stored;
     }
     applyPassword(initialPassword);
+    updateLimitTip();
   </script>
 </body>
 </html>`;

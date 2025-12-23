@@ -30,16 +30,13 @@ wrangler deploy
 
 - 密钥改变会进入新的房间指纹
 - 浏览器本地记录可随时清空
-- 图片默认限制 512KB（可在代码中修改）
+- 文件/图片最大 5MB（可在代码中通过 `MAX_FILE_BYTES` 调整）
 
 ## 📚 文档
 
-- 文档索引：`docs/INDEX.md`
-- 使用手册：`docs/usage/usage.md`
-- 需求说明：`docs/requirements/requirements.md`
-- 技术方案：`docs/technical/architecture.md`
-- 路由说明：`docs/api/routes.md`
-- 开发日志：`docs/logs/development.md`
+- 使用手册：[docs/usage/usage.md](docs/usage/usage.md)
+- 技术方案：[docs/technical/architecture.md](docs/technical/architecture.md)
+- 开发日志：[docs/logs/development.md](docs/logs/development.md)
 
 ---
 
