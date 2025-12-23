@@ -146,6 +146,7 @@ function createHomeResponse() {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☁️</text></svg>">
   <title>密钥消息</title>
   <style>
     :root {
@@ -231,6 +232,46 @@ function createHomeResponse() {
       margin-bottom: 12px;
     }
 
+    .chat-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+
+    .chat-head .section-title {
+      margin-bottom: 0;
+    }
+
+    .local-secret {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: #f3f4f6;
+      border: 1px solid var(--line);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .secret-value {
+      font-weight: 700;
+      color: var(--ink);
+    }
+
+    .copy-btn {
+      border: none;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #fff1e5;
+      color: #9b2c10;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
     .field {
       display: flex;
       flex-direction: column;
@@ -350,6 +391,25 @@ function createHomeResponse() {
       color: var(--muted);
       display: flex;
       justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .message .meta-right {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .message-copy {
+      border: none;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #f1f5f9;
+      color: #475569;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
     }
 
     .message .text {
@@ -456,6 +516,8 @@ function createHomeResponse() {
       header { flex-direction: column; align-items: flex-start; gap: 6px; }
       .panel { grid-template-columns: 1fr; }
       .messages { max-height: 320px; }
+      .chat-head { align-items: flex-start; }
+      .local-secret { width: 100%; justify-content: space-between; }
     }
   </style>
 </head>
@@ -475,7 +537,7 @@ function createHomeResponse() {
         <div class="field">
           <label for="secretInput">共享密钥</label>
           <div class="password-row">
-            <input id="secretInput" type="password" placeholder="输入后自动保存到浏览器">
+            <input id="secretInput" type="password" placeholder="留空默认 noset">
             <button id="toggleSecret" class="toggle-btn" type="button">显示</button>
           </div>
         </div>
@@ -490,7 +552,14 @@ function createHomeResponse() {
       </aside>
 
       <section class="card chat">
-        <div class="section-title">实时消息</div>
+        <div class="chat-head">
+          <div class="section-title">实时消息</div>
+          <div class="local-secret">
+            <span>本地密钥</span>
+            <span id="secretDisplay" class="secret-value">noset</span>
+            <button id="copySecret" class="copy-btn" type="button">复制</button>
+          </div>
+        </div>
         <div id="messages" class="messages"></div>
         <div class="composer">
           <div class="field">
@@ -517,6 +586,7 @@ function createHomeResponse() {
     const STORAGE_PASSWORD = 'cfchat.password';
     const STORAGE_CLIENT_ID = 'cfchat.clientId';
     const STORAGE_MESSAGES_PREFIX = 'cfchat.messages.';
+    const DEFAULT_PASSWORD = 'noset';
     const MAX_HISTORY = 200;
     const MAX_IMAGE_BYTES = 512 * 1024;
 
@@ -532,6 +602,8 @@ function createHomeResponse() {
     const statusText = document.getElementById('statusText');
     const fingerprintEl = document.getElementById('fingerprint');
     const noticeEl = document.getElementById('notice');
+    const secretDisplay = document.getElementById('secretDisplay');
+    const copySecret = document.getElementById('copySecret');
 
     let clientId = sessionStorage.getItem(STORAGE_CLIENT_ID);
     if (!clientId) {
@@ -562,6 +634,34 @@ function createHomeResponse() {
       }, 2200);
     }
 
+    function normalizePassword(value) {
+      const trimmed = (value || '').trim();
+      return trimmed ? trimmed : DEFAULT_PASSWORD;
+    }
+
+    function updateSecretDisplay(password) {
+      secretDisplay.textContent = password;
+    }
+
+    function copyToClipboard(text) {
+      if (navigator.clipboard && window.isSecureContext) {
+        return navigator.clipboard.writeText(text);
+      }
+      return new Promise((resolve, reject) => {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.top = '0';
+        textarea.style.left = '0';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        ok ? resolve() : reject(new Error('copy failed'));
+      });
+    }
     function storageKey(roomId) {
       return STORAGE_MESSAGES_PREFIX + roomId;
     }
@@ -604,23 +704,17 @@ function createHomeResponse() {
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
-    async function applyPassword(password) {
-      if (password === currentPassword && cryptoKey && currentRoomId) return;
-
-      if (!password) {
-        passwordVersion += 1;
-        currentPassword = '';
-        cryptoKey = null;
-        currentRoomId = '';
-        fingerprintEl.textContent = '指纹：未生成';
-        disconnect();
-        setStatus('disconnected', '等待密钥');
+    async function applyPassword(rawPassword) {
+      const password = normalizePassword(rawPassword);
+      if (password === currentPassword && cryptoKey && currentRoomId) {
+        updateSecretDisplay(password);
         return;
       }
 
       const version = ++passwordVersion;
       currentPassword = password;
       localStorage.setItem(STORAGE_PASSWORD, password);
+      updateSecretDisplay(password);
 
       const derivedKey = await deriveKey(password);
       if (version !== passwordVersion) return;
@@ -820,7 +914,39 @@ function createHomeResponse() {
       const meta = document.createElement('div');
       meta.className = 'meta';
       const timestamp = new Date(time || Date.now()).toLocaleTimeString();
-      meta.innerHTML = '<span>' + (mine ? '我' : '同伴') + '</span><span>' + timestamp + '</span>';
+
+      const metaLeft = document.createElement('span');
+      metaLeft.textContent = mine ? '我' : '同伴';
+
+      const metaRight = document.createElement('div');
+      metaRight.className = 'meta-right';
+
+      const timeSpan = document.createElement('span');
+      timeSpan.textContent = timestamp;
+
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'message-copy';
+      copyBtn.type = 'button';
+      copyBtn.textContent = '复制';
+
+      const rawText = typeof text === 'string' ? text : '';
+      copyBtn.addEventListener('click', async () => {
+        if (failed || !rawText) {
+          showNotice('没有可复制的内容');
+          return;
+        }
+        try {
+          await copyToClipboard(rawText);
+          showNotice('消息已复制');
+        } catch (error) {
+          showNotice('复制失败');
+        }
+      });
+
+      metaRight.appendChild(timeSpan);
+      metaRight.appendChild(copyBtn);
+      meta.appendChild(metaLeft);
+      meta.appendChild(metaRight);
 
       const content = document.createElement('div');
       content.className = 'text';
@@ -1008,7 +1134,7 @@ function createHomeResponse() {
     });
 
     secretInput.addEventListener('input', () => {
-      const value = secretInput.value.trim();
+      const value = secretInput.value;
       clearTimeout(passwordTimer);
       passwordTimer = setTimeout(() => {
         applyPassword(value);
@@ -1016,7 +1142,7 @@ function createHomeResponse() {
     });
 
     secretInput.addEventListener('blur', () => {
-      const value = secretInput.value.trim();
+      const value = secretInput.value;
       applyPassword(value);
     });
 
@@ -1026,13 +1152,21 @@ function createHomeResponse() {
       toggleSecret.textContent = isHidden ? '隐藏' : '显示';
     });
 
+    copySecret.addEventListener('click', async () => {
+      try {
+        await copyToClipboard(currentPassword || DEFAULT_PASSWORD);
+        showNotice('密钥已复制');
+      } catch (error) {
+        showNotice('复制失败');
+      }
+    });
+
     const stored = localStorage.getItem(STORAGE_PASSWORD);
-    if (stored) {
+    const initialPassword = stored || DEFAULT_PASSWORD;
+    if (stored && stored !== DEFAULT_PASSWORD) {
       secretInput.value = stored;
-      applyPassword(stored);
-    } else {
-      setStatus('disconnected', '等待密钥');
     }
+    applyPassword(initialPassword);
   </script>
 </body>
 </html>`;
