@@ -2,6 +2,8 @@
 
 基于 Cloudflare Workers 的实时加密消息页面：消息仅在浏览器本地保存，Worker 只做 WebSocket 转发。
 
+![](docs/demo.png)
+
 ## ✅ 特性
 
 - ✅ 实时消息（WebSocket 转发）
