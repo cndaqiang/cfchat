@@ -1,11 +1,15 @@
-# Cloudflare Workers 密钥消息
+# Cloudflare Chat - 实时加密消息
 
-基于 Cloudflare Workers 的实时加密消息服务。无需安装 App，无需局域网，只需浏览器即可在手机和电脑间安全分享文本、密码、小文件。
+<div align="center">
+<img src="docs/demo.png" width="300" alt="Demo">
 
-![](docs/demo.png)
+**基于 Cloudflare Workers 的实时加密消息服务。**
+
+</div>
 
 ## ✅ 特性
 
+- 🌐 **跨网络**：只需浏览器，不受局域网限制，即可跨设备安全分享文本、小文件
 - 🔐 **端到端加密**：AES-GCM 加密，服务端无法解密
 - 💬 **实时消息**：WebSocket 即时转发
 - 📱 **跨设备**：手机、电脑、平板，有浏览器就能用
