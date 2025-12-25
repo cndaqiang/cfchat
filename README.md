@@ -1,7 +1,7 @@
 # Cloudflare Chat - 实时加密消息
 
 <div align="center">
-<img src="docs/demo.png" width="300" alt="Demo">
+<img src="docs/demo.png" width="500" alt="Demo">
 
 **基于 Cloudflare Workers 的实时加密消息服务。**
 
